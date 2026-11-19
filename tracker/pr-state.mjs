@@ -52,6 +52,22 @@ export function fetchPrs(refs, repo) {
   });
 }
 
+const isDone = (c) => (c.__typename === 'CheckRun' ? c.status === 'COMPLETED' : !['PENDING', 'EXPECTED'].includes(c.state));
+
+// A head's rollup keeps every run of a check, including one cancelled because a newer run of the same check replaced
+// it. Only the newest run per name decides the check: a run still going, else the one that started last.
+export function latestRuns(contexts) {
+  const rank = (c) => [isDone(c) ? 0 : 1, c.startedAt ?? c.createdAt ?? c.completedAt ?? ''];
+  const newest = new Map();
+  for (const c of contexts) {
+    const name = c.name ?? c.context;
+    const prev = newest.get(name);
+    const [a, b] = [rank(c), prev && rank(prev)];
+    if (!prev || a[0] > b[0] || (a[0] === b[0] && a[1] >= b[1])) { newest.set(name, c); }
+  }
+  return [...newest.values()];
+}
+
 export function classify(pr) {
   const repo = repoOfUrl(pr.url);
   const config = checksFor(repo);
@@ -60,14 +76,14 @@ export function classify(pr) {
   const failed = { static: [], test: [] };
   const pending = { static: [], test: [] };
   let started = 0;
-  for (const c of contexts) {
+  for (const c of latestRuns(contexts)) {
     const name = c.name ?? c.context;
     if (matches(config.ignore, name)) { continue; }
     started++;
     const kind = matches(config.test, name) ? 'test' : 'static';
-    const done = c.__typename === 'CheckRun' ? c.status === 'COMPLETED' : !['PENDING', 'EXPECTED'].includes(c.state);
+    const done = isDone(c);
     const ok = c.__typename === 'CheckRun' ? ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(c.conclusion) : c.state === 'SUCCESS';
-    if (!done) { pending[kind].push(name); } else if (!ok) { failed[kind].push(name); }
+    if (!done) { pending[kind].push(name); } else if (c.conclusion === 'CANCELLED') { failed[kind].push(`${name} (cancelled, re-run it)`); } else if (!ok) { failed[kind].push(name); }
   }
 
   const openThreads = pr.reviewThreads.nodes.filter((t) => !t.isResolved).map((t) => ({

@@ -32,6 +32,12 @@ def main():
         lead_lib.ensure_watcher(d)
 
     if event == "UserPromptSubmit":
+        # A session switched with /lead had its SessionStart before it was a lead, so session.json, which tells the
+        # tracker which workers are running, can be missing or name an earlier session.
+        prev_path = d / "session.json"
+        prev = json.loads(prev_path.read_text()) if prev_path.exists() else {}
+        if payload.get("transcript_path") and prev.get("session_id") != payload.get("session_id"):
+            prev_path.write_text(json.dumps({"transcript_path": payload["transcript_path"], "session_id": payload.get("session_id"), "compactions": 0}))
         prompt = (payload.get("prompt") or "").strip()
         if prompt and not prompt.startswith(NOT_HUMAN):
             with open(d / "directives.md", "a") as f:
