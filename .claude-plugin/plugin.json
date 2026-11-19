@@ -1,0 +1,69 @@
+{
+  "name": "tech-lead",
+  "displayName": "Tech Lead",
+  "description": "A tech-lead session that delivers a project as reviewed, green draft PRs through pr-worker agents. Hooks keep its directives across compactions, keep every red PR owned, gate pushes on local checks and PR text on a prose judge.",
+  "author": { "name": "Clinton Blackburn", "url": "https://github.com/clintonb" },
+  "homepage": "https://github.com/clintonb/tech-lead",
+  "repository": "https://github.com/clintonb/tech-lead",
+  "license": "MIT",
+  "keywords": ["tech-lead", "pull-requests", "multi-agent", "hooks", "code-review"],
+  "userConfig": {
+    "owner_name": {
+      "type": "string",
+      "title": "Your name",
+      "description": "How agents refer to you, the person who reviews the PRs.",
+      "required": true
+    },
+    "review_bot": {
+      "type": "string",
+      "title": "Review bot login",
+      "description": "GitHub login (or login prefix) of the review bot whose review on the head commit gates readiness. Leave blank if you don't use one.",
+      "default": ""
+    },
+    "review_request": {
+      "type": "string",
+      "title": "Review request comment",
+      "description": "The PR comment that asks the review bot for a review, e.g. \"@my-bot review\". Leave blank if you don't use one.",
+      "default": ""
+    },
+    "tracker_publisher": {
+      "type": "string",
+      "title": "Tracker publisher",
+      "description": "Where the PR tracker page is published. \"none\" keeps it as a local HTML file in the lead directory. \"superset\" publishes it with the superset CLI.",
+      "options": ["none", "superset"],
+      "default": "none"
+    },
+    "push_gate": {
+      "type": "string",
+      "title": "Push gate",
+      "description": "Where a git push needs check-head.sh to pass first: every session (all), only lead and worker sessions (lead), or nowhere (off). It covers repos that declare static checks.",
+      "options": ["lead", "all", "off"],
+      "default": "lead"
+    },
+    "prose_gate": {
+      "type": "string",
+      "title": "PR prose gate",
+      "description": "Where PR titles and bodies need the prose judge to pass first: every session (all), only lead and worker sessions (lead), or nowhere (off).",
+      "options": ["lead", "all", "off"],
+      "default": "lead"
+    },
+    "repos_dir": {
+      "type": "string",
+      "title": "Repos directory",
+      "description": "Directory holding your local checkouts, as <repos_dir>/<repo name>. The tracker rebases conflicting PRs there.",
+      "default": "~/workspace"
+    },
+    "memory_dir": {
+      "type": "string",
+      "title": "Memory directory",
+      "description": "Directory where leads save lasting corrections as memory files, indexed in MEMORY.md. Leave blank to skip memory instructions.",
+      "default": ""
+    },
+    "lab_cli": {
+      "type": "string",
+      "title": "Lab CLI",
+      "description": "Command for remote lab machines (e.g. coder). Agents may use it for lab runs only, never for builds, tests or pushes. Leave blank if you have none.",
+      "default": ""
+    }
+  }
+}
