@@ -6,14 +6,18 @@
 //              version of state.pageId, or a new org page whose id is saved there
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
-import { classify, fetchPrs, labelOfKey, prKey, prLabel, unitRepo } from './pr-state.mjs';
+import { classify, fetchPrs, isRateLimited, labelOfKey, prKey, prLabel, unitRepo } from './pr-state.mjs';
 import { liveOwners } from './owners.mjs';
 import { rebaseConflicting } from './rebase.mjs';
 import { option, ownerName } from './config.mjs';
 
-const POLL_MS = 60 * 1000;
+// Every watcher shares one GitHub GraphQL budget, so a board that isn't changing polls less often.
+const FAST_MS = 60 * 1000;
+const SLOW_MS = 5 * 60 * 1000;
+const QUIET_TICKS = 5;
+const WAKE_CHECK_MS = 15 * 1000;
 // A conflict needs only a rebase; other blockers can need real work before the next push.
 const STALE_CONFLICT_MS = 10 * 60 * 1000;
 const STALE_MS = 30 * 60 * 1000;
@@ -160,6 +164,58 @@ const STYLE = `<style>
 
 // Appends one line per new blocker to <dir>/inbox/<owner>.log, or inbox/lead.log when the owner is not running.
 // Owners and the lead tail their file with a background Monitor, so a line wakes them.
+// Runs one tick, then sleeps FAST_MS while the board changes, SLOW_MS after QUIET_TICKS unchanged ticks, and until the
+// GraphQL reset after a rate-limit error. An edit to state.json ends any sleep early.
+function watch(dir) {
+  let lastSig = null;
+  let quiet = 0;
+  let limited = 0;
+  const log = (msg) => console.error(`${new Date().toISOString()} ${msg}`);
+  const stateMtime = () => { try { return statSync(join(dir, 'state.json')).mtimeMs; } catch { return 0; } };
+  const tick = () => {
+    let delay = FAST_MS;
+    try {
+      const { view } = build(dir, { publish: true });
+      notify(dir, view);
+      const prs = [...view.inProgress, ...view.awaiting, ...view.autoMerging];
+      try { rebaseConflicting(dir, { prs }); } catch (e) { log(`rebase failed: ${e.message.split('\n')[0]}`); }
+      const sig = JSON.stringify(prs.map((p) => [p.key, p.state, p.head, p.actions, p.waits, p.ownerLive]).sort());
+      quiet = sig === lastSig ? quiet + 1 : 0;
+      lastSig = sig;
+      delay = quiet >= QUIET_TICKS ? SLOW_MS : FAST_MS;
+      limited = 0;
+    } catch (e) {
+      if (isRateLimited(e)) {
+        limited++;
+        delay = rateLimitWait(limited);
+        log(`GitHub rate limit hit, sleeping ${Math.round(delay / 60000)} min`);
+      } else {
+        log(`build failed: ${e.message.split('\n')[0]}`);
+      }
+    }
+    const due = Date.now() + delay;
+    const since = stateMtime();
+    const wait = () => {
+      if (Date.now() >= due || stateMtime() !== since) { tick(); } else { setTimeout(wait, Math.min(WAKE_CHECK_MS, due - Date.now())); }
+    };
+    setTimeout(wait, Math.min(WAKE_CHECK_MS, delay));
+  };
+  tick();
+}
+
+// The REST rate_limit endpoint doesn't count against any budget. It reports only this token's GraphQL points, while
+// GitHub can refuse on a budget shared by every token of the user. When this token still has points, the reset it
+// reports says nothing about the shared one, so back off in steps instead.
+function rateLimitWait(attempt) {
+  const backoff = Math.min(SLOW_MS * 2 ** (attempt - 1), 30 * 60 * 1000);
+  try {
+    const { remaining, reset } = JSON.parse(execFileSync('gh', ['api', 'rate_limit', '--jq', '.resources.graphql'], { encoding: 'utf8' }));
+    return remaining > 0 ? backoff : Math.min(Math.max(reset * 1000 - Date.now() + 30 * 1000, FAST_MS), 60 * 60 * 1000);
+  } catch {
+    return backoff;
+  }
+}
+
 export function notify(dir, view) {
   const statePath = join(dir, 'notify-state.json');
   const prev = readJson(statePath, {});
@@ -265,12 +321,7 @@ if (import.meta.url !== `file://${process.argv[1]}`) {
   const brief = (p) => ({ repo: p.repo, number: p.number, label: p.label, url: p.url, state: p.state, draft: p.draft, paused: p.paused, autoMerge: Boolean(p.autoMerge), owner: p.owner, ownerLive: p.ownerLive, actions: p.actions, waits: p.waits, stack: p.stack ?? null });
   console.log(JSON.stringify({ awaiting: v.awaiting.map(brief), autoMerging: v.autoMerging.map(brief), inProgress: v.inProgress.map(brief), orphans: v.orphans.map(brief), stacks: v.stacks, notStarted: v.notStarted.map((u) => u.id), questions: readJson(join(dir, 'questions.json'), []).filter((q) => q.status === 'open' || q.status === 'pending') }, null, 2));
 } else if (args.includes('--watch')) {
-  const tick = () => {
-    try { rebaseConflicting(dir); } catch (e) { console.error(`${new Date().toISOString()} rebase failed: ${e.message.split('\n')[0]}`); }
-    try { notify(dir, build(dir, { publish: true }).view); } catch (e) { console.error(`${new Date().toISOString()} build failed: ${e.message.split('\n')[0]}`); }
-  };
-  tick();
-  setInterval(tick, POLL_MS);
+  watch(dir);
 } else {
   console.log(build(dir, { publish: args.includes('--publish') }).out);
 }

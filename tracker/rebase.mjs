@@ -8,7 +8,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { checksFor, prKey, unitRepo } from './pr-state.mjs';
+import { checksFor, fetchPrs, prKey, unitRepo } from './pr-state.mjs';
 import { expandHome, option } from './config.mjs';
 
 const gitIn = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -22,16 +22,26 @@ export function checkoutFor(state, repo) {
   } catch { return null; }
 }
 
-export function rebaseConflicting(dir, { dryRun = false } = {}) {
+// Open unit PRs that conflict with their base, in the shape classify() returns.
+function conflictingUnitPrs(state) {
+  const units = state.units.filter((u) => u.pr && u.status !== 'merged' && u.status !== 'dropped');
+  const repos = [...new Set(units.map((u) => unitRepo(state, u)))];
+  return repos.flatMap((repo) => fetchPrs(units.filter((u) => unitRepo(state, u) === repo).map((u) => String(u.pr)), repo)
+    .filter((pr) => pr?.state === 'OPEN' && pr.mergeable === 'CONFLICTING')
+    .map((pr) => ({ repo, number: pr.number, conflicting: true, base: pr.baseRefName, branch: pr.headRefName, head: pr.headRefOid })));
+}
+
+// `prs` is the watcher's own classified view, so a tick makes no GitHub calls here unless a PR conflicts.
+export function rebaseConflicting(dir, { dryRun = false, prs = null } = {}) {
   const state = JSON.parse(readFileSync(join(dir, 'state.json'), 'utf8'));
   const logPath = join(dir, 'rebase-log.json');
   const log = existsSync(logPath) ? JSON.parse(readFileSync(logPath, 'utf8')) : {};
   const results = [];
-  for (const unit of state.units) {
-    if (!unit.pr || unit.status === 'merged' || unit.status === 'dropped') { continue; }
-    const repo = unitRepo(state, unit);
-    const pr = JSON.parse(gh('pr', 'view', String(unit.pr), '--repo', repo, '--json', 'number,state,mergeable,baseRefName,headRefName,headRefOid'));
-    if (pr.state !== 'OPEN' || pr.mergeable !== 'CONFLICTING') { continue; }
+  for (const c of prs ?? conflictingUnitPrs(state)) {
+    const unit = state.units.find((u) => unitRepo(state, u) === c.repo && String(u.pr) === String(c.number));
+    if (!c.conflicting || !unit || unit.status === 'merged' || unit.status === 'dropped') { continue; }
+    const repo = c.repo;
+    const pr = { number: c.number, baseRefName: c.base, headRefName: c.branch, headRefOid: c.head };
     const base = `origin/${pr.baseRefName}`;
     const branch = pr.headRefName;
     const head = pr.headRefOid;

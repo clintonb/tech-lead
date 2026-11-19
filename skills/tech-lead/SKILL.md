@@ -30,7 +30,7 @@ Your lead directory is `~/.claude/leads/<project>/`. The session-start message n
 
 ## Inbox
 
-The tracker watcher (`build.mjs <lead-dir> --watch`) checks GitHub every minute. It writes each new blocker to `<lead-dir>/inbox/<owner>.log`. Blockers on a PR whose owner isn't running go to `inbox/lead.log` as `ORPHAN`, and PRs that just turned yellow or green go there as `READY`. Watch it with `inbox-wait.sh <lead-dir>`, run with Bash `run_in_background`. It exits on the next line and the completion wakes you. Act on the lines, then start it again. Never use a Monitor for the inbox: Monitors expire after 30 minutes. A Stop hook won't let you go idle without the waiter running. Give every ORPHAN line an owner at once. Every brief tells the worker to tail its own inbox.
+The tracker watcher (`build.mjs <lead-dir> --watch`) checks GitHub every minute while the board is changing, every five minutes when it is quiet, and backs off while GitHub rate-limits the account. It writes each new blocker to `<lead-dir>/inbox/<owner>.log`. Blockers on a PR whose owner isn't running go to `inbox/lead.log` as `ORPHAN`, and PRs that just turned yellow or green go there as `READY`. Watch it with `inbox-wait.sh <lead-dir>`, run with Bash `run_in_background`. It exits on the next line and the completion wakes you. Act on the lines, then start it again. Never use a Monitor for the inbox: Monitors expire after 30 minutes. A Stop hook won't let you go idle without the waiter running. Give every ORPHAN line an owner at once. Every brief tells the worker to tail its own inbox.
 
 ## Operating loop
 

@@ -5,7 +5,7 @@ A Claude Code plugin that runs a tech-lead session. The lead splits a project in
 Hooks enforce the rules, so they hold after the conversation is compacted and when an agent would rather skip them.
 
 - **Directives survive compaction.** Every message you type in a lead session goes into a ledger file, and the lead gets it back after every compaction.
-- **No orphaned PRs.** A tracker watcher checks GitHub every minute. A worker can't stop while its PR is red. The lead can't start new work while a red PR has no running owner, and a PR that stays red escalates.
+- **No orphaned PRs.** A tracker watcher checks GitHub every minute while the board is changing, every five minutes when it is quiet, and backs off while GitHub rate-limits the account. A worker can't stop while its PR is red. The lead can't start new work while a red PR has no running owner, and a PR that stays red escalates.
 - **Local checks before a push.** Workers push only through `ready-push.sh`, which runs the repo's static checks and refuses an unrecorded stacked base.
 - **PR text passes a judge.** A Sonnet judge checks each PR title and body against your writing standard before `gh pr create`.
 - **The lead coordinates and never codes.** It can't push, open PRs, edit code or reply to review threads.

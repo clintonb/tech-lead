@@ -22,10 +22,13 @@ export const prLabel = (state, repo, number) => (repo === state.repo ? `#${numbe
 export const labelOfKey = (key) => (/^\d+$/.test(key) ? `#${key}` : key.split('/')[1]);
 const matches = (patterns, name) => patterns.some((p) => new RegExp(p, 'i').test(name));
 
+export const isRateLimited = (e) => /rate limit/i.test(`${e?.message ?? ''} ${e?.stdout ?? ''} ${e?.stderr ?? ''}`);
+
+// Retrying into a rate limit only spends more of it, so a rate-limit error is thrown at once.
 const retry = (fn) => {
   let err;
   for (let i = 0; i < 3; i++) {
-    try { return fn(); } catch (e) { err = e; execFileSync('sleep', ['2']); }
+    try { return fn(); } catch (e) { err = e; if (isRateLimited(e)) { break; } execFileSync('sleep', ['2']); }
   }
   throw err;
 };
@@ -120,7 +123,7 @@ export function classify(pr) {
         : 'green';
   return {
     repo, number: pr.number, title: pr.title, url: pr.url, branch: pr.headRefName, base: pr.baseRefName,
-    head: pr.headRefOid, draft: pr.isDraft, autoMerge: pr.autoMergeRequest ? { method: pr.autoMergeRequest.mergeMethod, enabledAt: pr.autoMergeRequest.enabledAt, by: pr.autoMergeRequest.enabledBy?.login } : null, additions: pr.additions, deletions: pr.deletions,
+    head: pr.headRefOid, conflicting: pr.mergeable === 'CONFLICTING', draft: pr.isDraft, autoMerge: pr.autoMergeRequest ? { method: pr.autoMergeRequest.mergeMethod, enabledAt: pr.autoMergeRequest.enabledAt, by: pr.autoMergeRequest.enabledBy?.login } : null, additions: pr.additions, deletions: pr.deletions,
     state, actions, waits, testsRunning: pending.test, openThreads, minorFindings, pushedAt: headAt,
   };
 }
