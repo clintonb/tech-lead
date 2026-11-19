@@ -18,6 +18,9 @@ const FAST_MS = 60 * 1000;
 const SLOW_MS = 5 * 60 * 1000;
 const QUIET_TICKS = 5;
 const WAKE_CHECK_MS = 15 * 1000;
+// With nothing to watch for, a watcher exits rather than spend the shared budget. The lead's hooks start it again.
+const LEAD_IDLE_MS = 15 * 60 * 1000;
+const IDLE_TICKS = 2;
 // A conflict needs only a rebase; other blockers can need real work before the next push.
 const STALE_CONFLICT_MS = 10 * 60 * 1000;
 const STALE_MS = 30 * 60 * 1000;
@@ -126,7 +129,7 @@ ${waitRows.length ? `<div class="wide"><table><tr><th>Asked</th><th>Question</th
 ${ansRows.length ? `<details open><summary>Answered in the last ${ANSWERED_DAYS} days (${ansRows.length})</summary><div class="wide"><table><tr><th>Asked</th><th>Question</th><th>Answer</th></tr>${ansRows.join('')}</table></div></details>` : ''}`;
 }
 
-function render(view, questions = []) {
+function render(view, questions = [], note = '') {
   const { state, awaiting, autoMerging, inProgress, notStarted, stacks } = view;
   const STATE_LABEL = { red: 'blocked', waiting: 'checks running', yellow: 'tests running', green: 'green', merged: 'merged', open: 'open', closed: 'closed' };
   const stackItems = stacks.map((st) => `<li><a href="${esc(st.url)}">Stack #${st.number}</a> onto ${esc(st.base)}, merge bottom first: ${st.prs.map((sp) => `<a href="https://github.com/${esc(st.repo)}/pull/${sp.number}">${esc(sp.label)}</a> ${esc(sp.title)} <small>(${esc(STATE_LABEL[sp.trackerState] ?? sp.trackerState)})</small>`).join(' &rarr; ')}</li>`);
@@ -138,6 +141,7 @@ function render(view, questions = []) {
   const todo = notStarted.map((u) => `<li>${esc(u.title ?? u.id)}${u.owner ? ` (${esc(u.owner)})` : ''}</li>`);
   return `
 <h1>${esc(state.title)}</h1>
+${note ? `<p class="warn"><strong>${esc(note)}</strong></p>` : ''}
 ${renderQuestions(questions)}
 <h2>Awaiting ${esc(ownerName())} (${awaiting.length})</h2>
 ${awaitRows.length ? `<div class="wide"><table><tr><th>PR</th><th>CI</th><th>Size</th><th>Lab</th><th>Declined P2/P3 on head</th><th>Last push</th></tr>${awaitRows.join('')}</table></div>` : '<p class="lede">Nothing is ready for review.</p>'}
@@ -170,6 +174,7 @@ function watch(dir) {
   let lastSig = null;
   let quiet = 0;
   let limited = 0;
+  let idleTicks = 0;
   const log = (msg) => console.error(`${new Date().toISOString()} ${msg}`);
   const stateMtime = () => { try { return statSync(join(dir, 'state.json')).mtimeMs; } catch { return 0; } };
   const tick = () => {
@@ -184,6 +189,13 @@ function watch(dir) {
       lastSig = sig;
       delay = quiet >= QUIET_TICKS ? SLOW_MS : FAST_MS;
       limited = 0;
+      idleTicks = noWork(dir, view) ? idleTicks + 1 : 0;
+      if (idleTicks >= IDLE_TICKS) {
+        const note = `Paused ${pt(new Date().toISOString())}: no worker is running, no PR needs action or has checks running, and the lead is idle. The tracker resumes when the lead is next active.`;
+        try { build(dir, { publish: true, note }); } catch (e) { log(`pause publish failed: ${e.message.split('\n')[0]}`); }
+        log('paused: no work in progress');
+        process.exit(0);
+      }
     } catch (e) {
       if (isRateLimited(e)) {
         limited++;
@@ -201,6 +213,15 @@ function watch(dir) {
     setTimeout(wait, Math.min(WAKE_CHECK_MS, delay));
   };
   tick();
+}
+
+// No work: nothing a worker or a pending check could change, and a lead that hasn't acted for LEAD_IDLE_MS. A red PR
+// without an owner keeps the watcher going, since its ORPHAN and STALE lines are what get it fixed.
+export function noWork(dir, view) {
+  if (view.inProgress.some((p) => !p.paused) || view.autoMerging.length || view.awaiting.some((p) => p.state !== 'green')) { return false; }
+  if (liveOwners(dir).size) { return false; }
+  const { transcript_path: path } = readJson(join(dir, 'session.json'), {});
+  try { return Date.now() - statSync(path).mtimeMs >= LEAD_IDLE_MS; } catch { return true; }
 }
 
 // The REST rate_limit endpoint doesn't count against any budget. It reports only this token's GraphQL points, while
@@ -292,9 +313,9 @@ function recordPage(dir, res) {
   renameSync(`${path}.tmp`, path);
 }
 
-function build(dir, { publish }) {
+function build(dir, { publish, note = '' }) {
   const view = collect(dir);
-  const body = render(view, readJson(join(dir, 'questions.json'), []));
+  const body = render(view, readJson(join(dir, 'questions.json'), []), note);
   const hash = createHash('sha256').update(body).digest('hex');
   const outDir = join(dir, 'tracker');
   mkdirSync(outDir, { recursive: true });

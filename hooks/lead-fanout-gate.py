@@ -20,6 +20,8 @@ def main():
     payload = lead_lib.read_input()
     if lead_lib.role(payload) != lead_lib.LEAD_AGENT or payload.get("tool_name") != "Agent":
         return
+    if (lead_lib.lead_dir(payload) / "state.json").exists():
+        lead_lib.ensure_watcher(lead_lib.lead_dir(payload))
     args = payload.get("tool_input", {})
     kind = lead_lib.bare(args.get("subagent_type") or "general-purpose")
     if kind in READ_ONLY_AGENTS:

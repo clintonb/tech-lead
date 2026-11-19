@@ -39,6 +39,9 @@ def main():
     if lead_lib.role(payload) != lead_lib.LEAD_AGENT or payload.get("stop_hook_active"):
         return
     d = lead_lib.lead_dir(payload)
+    # The lead just worked, so a watcher that paused for lack of work starts again.
+    if (d / "state.json").exists():
+        lead_lib.ensure_watcher(d)
     unanswered = [q for q in lead_lib.load_questions(d) if q["status"] == "open"]
     if unanswered:
         listing = "\n".join(f"- {q['id']}: {q['text']}" for q in unanswered)
