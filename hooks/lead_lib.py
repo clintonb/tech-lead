@@ -228,6 +228,8 @@ def default_branch(cwd):
 
 def ensure_watcher(d):
     """Starts the tracker watcher for lead dir d unless one is running. It rebuilds the tracker every minute and publishes it when a publisher is set."""
+    if os.environ.get("TECH_LEAD_NO_WATCHER"):
+        return False
     d = str(d).rstrip("/")
     running = subprocess.run(["pgrep", "-f", f"^node .*build.mjs {d} --watch"], capture_output=True, text=True).stdout.strip()
     if running:

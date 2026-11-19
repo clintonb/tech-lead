@@ -7,6 +7,7 @@ REPO="${TEST_REPO:?set TEST_REPO=owner/name}"; MERGED="${TEST_MERGED_PR:?set TES
 ROOT=$(cd "$(dirname "$0")/.." && pwd); H="$ROOT/hooks"; T=$(mktemp -d); PASS=0; FAILN=0
 # Leads, pass records and the copied settings all live under CLAUDE_CONFIG_DIR, so the run can't touch real ones.
 export CLAUDE_CONFIG_DIR="$T/config"
+export TECH_LEAD_NO_WATCHER=1
 export CLAUDE_PLUGIN_OPTION_OWNER_NAME="Pat" CLAUDE_PLUGIN_OPTION_LAB_CLI="coder" CLAUDE_PLUGIN_OPTION_PROSE_GATE="all" CLAUDE_PLUGIN_OPTION_PUSH_GATE="all"
 export LEAD_PROJECT="harness-test"; LD="$CLAUDE_CONFIG_DIR/leads/$LEAD_PROJECT"; mkdir -p "$LD"
 trap 'rm -rf "$T"' EXIT
