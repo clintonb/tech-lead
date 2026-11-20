@@ -61,6 +61,8 @@ def main():
 
     if GIT_PUSH.search(cmd) and "ready-push.sh" not in cmd:
         return lead_lib.deny("Push only through `ready-push.sh <repo> <lead-dir> [--force-with-lease]`. It runs the static checks and the base gate first.")
+    if rounds_gate(payload, cmd):
+        return
     if PR_RETITLE.search(cmd):
         return lead_lib.deny("Workers do not edit a PR title or body after opening it. Send the proposed text to the lead.")
     if PR_CREATE.search(cmd):
@@ -77,6 +79,46 @@ def main():
             d = lead_lib.lead_dir(payload)
             if not (head and lead_lib.stack_allowed(d, head, base)):
                 return lead_lib.deny(f"PRs target {default} unless the lead recorded this stack: the unit for `{head}` in state.json needs stackOn `{base}` and a stackReason. Pass --head explicitly.")
+
+
+ROUNDS_LIMIT = 3  # keep equal to ROUNDS_LIMIT in build.mjs
+MIN_ANALYSIS_BYTES = 300
+
+
+def rounds_gate(payload, cmd):
+    """True when it denied: past ROUNDS_LIMIT review rounds with findings, a worker asks for another review only after writing its analysis."""
+    request = lead_lib.option("review_request").strip()
+    if not request or request.lower() not in cmd.lower() or not re.search(r"\bgh\s+(pr\s+comment|api)\b", cmd):
+        return
+    unit_id, d = lead_lib.brief_unit(lead_lib.first_user_text(lead_lib.own_transcript(payload)))
+    if not d:
+        return
+    state = lead_lib.load_state(d) or {}
+    unit = lead_lib.find_unit(state, unit_id) or {}
+    m = re.search(r"\bgh\s+pr\s+comment\s+(\d+)", cmd)
+    number = int(m.group(1)) if m else unit.get("pr")
+    repo_arg = re.search(r"(?:--repo|-R)[=\s]+(\S+)", cmd)
+    repo = repo_arg.group(1) if repo_arg else unit.get("repo") or state.get("repo")
+    if not number or not repo:
+        return
+    try:
+        pr = lead_lib.pr_state(repo, number)
+    except Exception:
+        return
+    rounds = pr.get("reviewRounds", 0)
+    if rounds < ROUNDS_LIMIT:
+        return
+    note = pathlib.Path(d) / "rounds" / f"{number}-{rounds}.md"
+    if note.exists() and note.stat().st_size >= MIN_ANALYSIS_BYTES:
+        return
+    lead_lib.deny(
+        f"#{number} has had {rounds} review rounds with findings, so another round of one-at-a-time fixes won't converge. "
+        f"Before requesting review {rounds + 1}, write {note}: every finding from every round, which ones you proved real "
+        "(a failing spec, or the exact code path and inputs) and which you declined with evidence, what the real ones have in common, "
+        "and the design change that removes that cause instead of guarding each case. Make that change, send the lead the file's path, "
+        "then request the review."
+    )
+    return True
 
 
 def park_gate(payload):

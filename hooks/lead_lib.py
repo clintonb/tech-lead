@@ -251,3 +251,13 @@ def declared_checks(repo):
         if "lint:strict:changed" in scripts or "check" in scripts:
             return True
     return any(os.access(r / "scripts" / n, os.X_OK) for n in ("check", "lint"))
+
+
+def own_transcript(payload):
+    """The calling subagent's transcript, which starts with its brief. Empty for a main session."""
+    if payload.get("agent_transcript_path"):
+        return payload["agent_transcript_path"]
+    aid, main = payload.get("agent_id"), payload.get("transcript_path")
+    if not aid or not main:
+        return ""
+    return str(pathlib.Path(main).with_suffix("") / "subagents" / f"agent-{aid}.jsonl")

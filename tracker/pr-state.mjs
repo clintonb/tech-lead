@@ -95,6 +95,10 @@ export function classify(pr) {
   const useBot = Boolean(BOT) && config.reviewBot !== false;
   const botReviews = useBot ? pr.reviews.nodes.filter((r) => (r.author?.login ?? '').startsWith(BOT) && r.body.trim()) : [];
   const onHead = botReviews.filter((r) => r.commit?.oid === pr.headRefOid).at(-1);
+  // A round is a bot review on a distinct commit that still asked for something. Approvals with no findings don't count.
+  const reviewRounds = new Set(botReviews
+    .filter((r) => !/APPROVE/.test(r.body.split('\n')[0]) || /\*\*P\d\*\*/.test(r.body))
+    .map((r) => r.commit?.oid)).size;
   // P0 and P1 items block even under an APPROVE header. P2 and P3 items are shown for the owner to judge: chasing them
   // never converges, and owners fix the data-affecting ones before reporting ready.
   const listed = onHead ? [...onHead.body.matchAll(/\*\*P(\d)\*\*\s+([^\n]+)/g)].map((m) => ({ p: Number(m[1]), title: m[2].trim() })) : [];
@@ -124,7 +128,7 @@ export function classify(pr) {
   return {
     repo, number: pr.number, title: pr.title, url: pr.url, branch: pr.headRefName, base: pr.baseRefName,
     head: pr.headRefOid, conflicting: pr.mergeable === 'CONFLICTING', draft: pr.isDraft, autoMerge: pr.autoMergeRequest ? { method: pr.autoMergeRequest.mergeMethod, enabledAt: pr.autoMergeRequest.enabledAt, by: pr.autoMergeRequest.enabledBy?.login } : null, additions: pr.additions, deletions: pr.deletions,
-    state, actions, waits, testsRunning: pending.test, openThreads, minorFindings, pushedAt: headAt,
+    state, actions, waits, testsRunning: pending.test, openThreads, minorFindings, reviewRounds, pushedAt: headAt,
   };
 }
 

@@ -24,6 +24,8 @@ const IDLE_TICKS = 2;
 // A conflict needs only a rebase; other blockers can need real work before the next push.
 const STALE_CONFLICT_MS = 10 * 60 * 1000;
 const STALE_MS = 30 * 60 * 1000;
+// From this many review rounds with findings, another request needs a written analysis first (role-gate.py).
+export const ROUNDS_LIMIT = 3;
 
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const pt = (iso) => (iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) : '');
@@ -265,6 +267,14 @@ export function notify(dir, view) {
       }
       next[`red:${p.key}`] = `${p.head} ${start} ${warnedAt}`;
     }
+    if ((p.reviewRounds ?? 0) >= ROUNDS_LIMIT) {
+      next[`rounds:${p.key}`] = String(p.reviewRounds);
+      if (prev[`rounds:${p.key}`] !== next[`rounds:${p.key}`]) {
+        const line = `ROUNDS ${p.label} ${p.url} has had ${p.reviewRounds} review rounds with findings. Stop fixing findings one at a time. Prove each one real or decline it with evidence, find what they have in common, and change the design so that cause is gone. Write the analysis to ${join(dir, 'rounds', `${p.number}-${p.reviewRounds}.md`)} before requesting another review. A hook refuses the request until it exists.`;
+        if (p.owner && p.ownerLive) { send(p.owner, line); }
+        send('lead', `${line} (owner ${p.owner ?? 'none'}) Read the analysis when it lands. If the cause is the unit's design, re-brief the owner rather than routing more findings.`);
+      }
+    }
     if (prev[p.key] === sig) { continue; }
     if (p.state === 'red') {
       const line = `${p.label} ${p.url} is red: ${p.actions.join('; ')}`;
@@ -286,7 +296,7 @@ export function notify(dir, view) {
   }
   const { state } = view;
   for (const key of Object.keys(prev)) {
-    if (key.startsWith('overloaded:') || key.startsWith('red:') || next[key] !== undefined) { continue; }
+    if (key.startsWith('overloaded:') || key.startsWith('red:') || key.startsWith('rounds:') || next[key] !== undefined) { continue; }
     const unit = state.units.find((u) => u.pr && prKey(state, unitRepo(state, u), u.pr) === key);
     if (unit?.status === 'paused') { continue; }
     const line = `CLOSED ${labelOfKey(key)} is merged or closed. Stop all work on it, and never report it as ready.`;
