@@ -29,7 +29,7 @@ Start a lead in any session with `/tech-lead:lead <project>`, or start a fresh s
 claude --agent tech-lead:tech-lead
 ```
 
-`bin/lead.sh <project> [--bypass]` does the same from a terminal and names the project. Lead state lives in `~/.claude/leads/<project>/`: the directives ledger, `state.json` with the unit list, the inbox and the generated tracker page.
+`bin/lead.sh <project> [--ask]` does the same from a terminal and names the project. It starts in bypass permissions mode, where deny rules and hooks still apply. `--ask` starts with permission prompts instead. Lead state lives in `~/.claude/leads/<project>/`: the directives ledger, `state.json` with the unit list, the inbox and the generated tracker page.
 
 `/tech-lead:lead off` turns a session back into an ordinary one.
 
